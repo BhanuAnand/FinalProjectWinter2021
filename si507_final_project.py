@@ -164,7 +164,7 @@ if unique_key in mycache:
     # get the data from db
 else:
     print("Fetching from website")
-    url = 'https://indeed.com/jobs?q=software+intern&l=Dearborn&sort=date'
+    url = 'https://indeed.com/jobs?q='+query+'&l='+location+'&sort=date'
     link = requests.get(url)
     site = BeautifulSoup(link.text, 'html.parser')
     #mycache[unique_key] = site
@@ -267,11 +267,11 @@ df
 
 #send an email to user using df
 # Email variables. Modify this!
-EMAIL_FROM = 'anand.aditi5@gmail.com'
-EMAIL_TO = email
-EMAIL_SUBJECT = 'Indeed jobs for ',query,' at ',location
-EMAIL_CONTENT = df.to_html()
+#EMAIL_FROM = 'anand.aditi5@gmail.com'
+#EMAIL_TO = email
+#EMAIL_SUBJECT = 'Indeed jobs for ',query,' at ',location
+#EMAIL_CONTENT = df.to_html()
 
-SCOPES = ['https://www.googleapis.com/auth/gmail.send']
+#SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
 #send_email()
