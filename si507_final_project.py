@@ -47,6 +47,7 @@ def execute_query(db, sql, query_tuple=None):
             c.execute(sql)
         else:
             c.execute(sql, query_tuple)
+        conn.commit()
       except Exception as e:
         print(e)
     else:
@@ -159,15 +160,41 @@ mycache = FileCache('fcacheFileStore', flag='cs')
 unique_key = email+query+location
 print(unique_key)
 
+db = r"C:\Users\anura\Desktop\Aditi\Winter 2021\507\Final Project\Code\indeed_sqlite.db"
+#create tables if do not exists
+sql_create_jobs_table = """ CREATE TABLE IF NOT EXISTS jobs (
+                                url text PRIMARY KEY,
+                                title text,
+                                location text,
+                                company text,
+                                salary text,
+                                ratings text
+                              ); """
+execute_query(db, sql_create_jobs_table)
+
+sql_create_users_table = """ CREATE TABLE IF NOT EXISTS users (
+                                email_id text, 
+                                search_query text NOT NULL,
+                                location text NOT NULL,
+                                job_url text,
+                                CONSTRAINT PK_User PRIMARY KEY (email_id,search_query,location),
+                                FOREIGN KEY (job_url) REFERENCES projects (url)
+                              ); """
+execute_query(db, sql_create_users_table)
+
+l = []
+df=pandas.DataFrame(l)
+
 if unique_key in mycache:
     print("Fetching from DB")
+    site_data = mycache[unique_key]
+    print(site_data)
     # get the data from db
 else:
     print("Fetching from website")
     url = 'https://indeed.com/jobs?q='+query+'&l='+location+'&sort=date'
     link = requests.get(url)
     site = BeautifulSoup(link.text, 'html.parser')
-    #mycache[unique_key] = site
 
     job_title_list = []
     jobs = site.find_all(name='a', attrs={'data-tn-element': 'jobTitle'})
@@ -212,28 +239,6 @@ else:
         apply_url = view_job_url + job_id
         apply_urls.append(apply_url)
 
-    #create tables if do not exists
-    db = r"C:\Users\anura\Desktop\Aditi\Winter 2021\507\Final Project\Code\indeed_sqlite.db"
-    sql_create_jobs_table = """ CREATE TABLE IF NOT EXISTS jobs (
-                                    url text PRIMARY KEY,
-                                    title text,
-                                    location text,
-                                    company text,
-                                    salary text,
-                                    ratings text
-                                  ); """
-    execute_query(db, sql_create_jobs_table)
-
-    sql_create_users_table = """ CREATE TABLE IF NOT EXISTS users (
-                                    email_id text, 
-                                    search_query text NOT NULL,
-                                    location text NOT NULL,
-                                    job_url text,
-                                    CONSTRAINT PK_User PRIMARY KEY (email_id,search_query,location),
-                                    FOREIGN KEY (job_url) REFERENCES projects (url)
-                                  ); """
-    execute_query(db, sql_create_users_table)
-
     #insert data scraped into tables
     length_of_list = len(apply_urls)
     for x in range(length_of_list):
@@ -247,23 +252,24 @@ else:
 
         users_query_tuple = (email, query, location, apply_urls[x])
         execute_query(db, sql_insert_users_table, users_query_tuple)
-
-      
-#preparing datframe to be sent to user
-length_of_list = len(apply_urls)
-l=[]
-for x in range(length_of_list):
-    d={}
-    d["Title"] = job_title_list[x]
-    d["Location"] = job_loc_list[x]
-    d["Company"] = company_name_list[x]
-    d["Salary"] = salary_list[x]
-    d["Ratings"] = ratings_list[x]
-    d["JobsURL"] = apply_urls[x]
-    l.append(d)
-
-df=pandas.DataFrame(l)
-df
+     
+    #preparing datframe to be sent to user
+    length_of_list = len(apply_urls)
+    final_list_for_cache = []
+    for x in range(length_of_list):
+        d={}
+        d["Title"] = job_title_list[x]
+        d["Location"] = job_loc_list[x]
+        d["Company"] = company_name_list[x]
+        d["Salary"] = salary_list[x]
+        d["Ratings"] = ratings_list[x]
+        d["JobsURL"] = apply_urls[x]
+        l.append(d)
+        d_copy = d.copy()
+        final_list_for_cache.append(d_copy)
+    
+    mycache[unique_key] = final_list_for_cache
+    df=pandas.DataFrame(l)
 
 #send an email to user using df
 # Email variables. Modify this!
