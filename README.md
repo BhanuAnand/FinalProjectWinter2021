@@ -1,7 +1,7 @@
 # FinalProjectWinter2021
 
 ##### Requirements
-pip install fcache
+pip install fcache<br />
 pip install pretty_html_table
 
 For sending Gmail, there are certain OAuth 2.0 configuration. Below is the link to the document containing steps and screenshots:
