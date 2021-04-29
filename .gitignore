@@ -1,0 +1,8 @@
+# Ignore secrets json file
+credentials.json
+
+# Ignore refresh tokens file
+token.json
+
+# Ignore sqlite db
+indeed_sqlite.db
