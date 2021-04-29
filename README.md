@@ -1,6 +1,6 @@
 # FinalProjectWinter2021
 
-Project Flow:
+##### Project Flow:
 1)	Take email id, job search query, job location from the user
 2)	Scrape the Indeed URL with user inputs from above
 3)	Check data in cache corresponding to the input, if not then scrape from the website and save the data to the cache and DB
