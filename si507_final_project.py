@@ -1,22 +1,28 @@
-import requests, pandas, sqlite3
+import requests, pandas, sqlite3, os.path, base64
 from bs4 import BeautifulSoup
 from fcache.cache import FileCache
-import os.path
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from email.mime.text import MIMEText
 from apiclient import errors
-import base64
+from pretty_html_table import build_table
 
 
 # methods for interacting with SQLite DB
 def create_connection(db_file):
     """ create a database connection to the SQLite database
         specified by db_file
-    :param db_file: database file
-    :return: Connection object or None
+    Parameters
+    ----------
+    db_file
+        database file
+    sql
+        a SQL statement
+    Returns
+    -------
+    Connection object or None
     """
     conn = None
     try:
@@ -27,46 +33,65 @@ def create_connection(db_file):
 
     return conn
 
-def execute_query(db, sql, query_tuple=None):
+def execute_query(db, query, query_tuple=None):
     """ execote SQL query in the db
     Parameters
     ----------
     db
         Database file path
-    sql
+    query
         a SQL statement
+    query_tuple
+        query params
     Returns
     -------
-    None
+    just-inserted ID
     """
     conn = create_connection(db)
     if conn is not None:
       try:
         c = conn.cursor()
         if query_tuple is None:
-            c.execute(sql)
+            c.execute(query)
         else:
-            c.execute(sql, query_tuple)
+            c.execute(query, query_tuple)
         conn.commit()
       except Exception as e:
         print(e)
     else:
       print("Error! cannot create the database connection.")
 
-def fetch_result(conn, query):
+    return c.lastrowid
+
+def fetch_result(db, query, query_tuple=None):
     ''' Fetches the resultset from db   
     Parameters
     ----------
-    str
-        query string  
+    db
+        Database file path
+    query
+        a SQL statement
+    query_tuple
+        query params
     Returns
     -------
     list
         resultset
     '''
-    cursor = conn.cursor()
-    result = cursor.execute(query).fetchall()
-    conn.close()
+    conn = create_connection(db)
+    if conn is not None:
+      try:
+        c = conn.cursor()
+        if query_tuple is None:
+            result = c.execute(query).fetchall()
+        else:
+            result = c.execute(query, query_tuple).fetchall()
+        conn.close()
+      except Exception as e:
+        print(e)
+    else:
+      print("Error! cannot create the database connection.")
+    
     return result
 
 
@@ -83,7 +108,7 @@ def create_message(sender, to, subject, message_text):
   Returns:
     An object containing a base64url encoded email object.
   """
-  message = MIMEText(message_text)
+  message = MIMEText(message_text, 'html')
   message['to'] = to
   message['from'] = sender
   message['subject'] = subject
@@ -137,59 +162,88 @@ def send_email():
     service = build('gmail', 'v1', credentials=creds)
 
     message = create_message(EMAIL_FROM, EMAIL_TO, EMAIL_SUBJECT, EMAIL_CONTENT)
-    print(message)
 
     sent = send_message(service,'me', message)
     print(sent)
 
 
 #take the input from the user
-#email = input("Enter your email id: ")
-#query = input("Enter the type of jobs you would like to search: ")
-#location = input("Enter the job location: ")
-email = 'anandadi@umich.edu'
-query = 'software intern'
-location = 'michigan'
+email = input("Enter your email id: ")
+query = input("Enter the type of jobs you would like to search: ")
+location = input("Enter the job location: ")
 
 #validate the input received
 #TODO
 
 #first check in the cache; if not there, scrape the data from the website
-mycache = FileCache('fcacheFileStore', flag='cs')
+indeed_cache = FileCache('fcacheFileStore', flag='cs')
 
 unique_key = email+query+location
-print(unique_key)
 
 db = r"C:\Users\anura\Desktop\Aditi\Winter 2021\507\Final Project\Code\indeed_sqlite.db"
 #create tables if do not exists
 sql_create_jobs_table = """ CREATE TABLE IF NOT EXISTS jobs (
-                                url text PRIMARY KEY,
+                                id integer PRIMARY KEY autoincrement,
                                 title text,
                                 location text,
                                 company text,
                                 salary text,
-                                ratings text
+                                ratings text,
+                                url text NOT NULL,
+                                CONSTRAINT UC_jobs UNIQUE (url)
                               ); """
 execute_query(db, sql_create_jobs_table)
 
 sql_create_users_table = """ CREATE TABLE IF NOT EXISTS users (
-                                email_id text, 
+                                id integer PRIMARY KEY autoincrement,
+                                email_id text NOT NULL, 
                                 search_query text NOT NULL,
                                 location text NOT NULL,
-                                job_url text,
-                                CONSTRAINT PK_User PRIMARY KEY (email_id,search_query,location),
-                                FOREIGN KEY (job_url) REFERENCES projects (url)
+                                CONSTRAINT UC_users UNIQUE (email_id,search_query,location)
                               ); """
 execute_query(db, sql_create_users_table)
+
+sql_create_users_jobs_table = """ CREATE TABLE IF NOT EXISTS users_jobs (
+                                user_id integer,
+                                job_id integer,
+                                FOREIGN KEY(user_id) REFERENCES users(id),
+                                FOREIGN KEY(job_id) REFERENCES jobs(id)
+                              ); """
+execute_query(db, sql_create_users_jobs_table)
 
 l = []
 df=pandas.DataFrame(l)
 
-if unique_key in mycache:
-    print("Fetching from DB")
-    site_data = mycache[unique_key]
+# using cache to check if the site is already scrapped for the user inputs
+if unique_key in indeed_cache:
+    print("Data in cache")
+    site_data = indeed_cache[unique_key]
     print(site_data)
-    # get the data from db
+    
+    print("Fetching from DB")
+    sql_check_users_table = """SELECT * FROM users
+                                    WHERE email_id = ?
+                                    AND search_query = ?
+                                    AND location = ?;"""
+    users_query_tuple = (email, query, location)
+    user_resultset = fetch_result(db, sql_check_users_table, users_query_tuple)
+
+    sql_check_users_jobs_table = """SELECT * FROM users_jobs
+                                    WHERE user_id = ?;"""
+    user_id = str(user_resultset[0][0])
+    users_jobs_query_tuple = (user_id,)
+    users_jobs_resultset = fetch_result(db, sql_check_users_jobs_table, users_jobs_query_tuple)
+    
+    users_jobs_list_length = len(users_jobs_resultset)
+    list_of_tuples = []
+    for x in range(users_jobs_list_length):
+        sql_check_jobs_table = """SELECT * FROM jobs
+                                        WHERE id = ?;"""
+        job_id = str(users_jobs_resultset[x][1])
+        jobs_query_tuple = (job_id,)
+        jobs_resultset = fetch_result(db, sql_check_jobs_table, jobs_query_tuple)
+        list_of_tuples.append(jobs_resultset[0])
+    df = pandas.DataFrame(list_of_tuples,columns=['S.No.','Title','Location','Company','Salary','Ratings','JobsURL'])
 else:
     print("Fetching from website")
     url = 'https://indeed.com/jobs?q='+query+'&l='+location+'&sort=date'
@@ -241,23 +295,37 @@ else:
 
     #insert data scraped into tables
     length_of_list = len(apply_urls)
-    for x in range(length_of_list):
-        sql_insert_jobs_table = """INSERT INTO jobs (url,title,location,company,salary,ratings)
-                                    VALUES(?, ?, ?, ?, ?, ?);"""
-        jobs_query_tuple = (apply_urls[x], job_title_list[x], job_loc_list[x], company_name_list[x], salary_list[x], ratings_list[x])
-        execute_query(db, sql_insert_jobs_table, jobs_query_tuple)
-        
-        sql_insert_users_table = """INSERT INTO users (email_id,search_query,location,job_url)
-                                    VALUES(?, ?, ?, ?);"""
+    sql_insert_users_table = """INSERT INTO users (email_id,search_query,location)
+                                    VALUES(?, ?, ?);"""
+    users_query_tuple = (email, query, location)
+    user_id = execute_query(db, sql_insert_users_table, users_query_tuple)
 
-        users_query_tuple = (email, query, location, apply_urls[x])
-        execute_query(db, sql_insert_users_table, users_query_tuple)
+    for x in range(length_of_list):
+        # Before inserting into jobs table, checking if the job to be inserted is already in the table. If it is already present, we will take out the job id from the table that is to be used in the mapping table users_jobs
+        sql_check_jobs_id = """SELECT * FROM jobs
+                                        WHERE url = ?;"""
+        query_tuple = (apply_urls[x],)
+        jobs_result = fetch_result(db, sql_check_jobs_id, query_tuple)
+
+        if len(jobs_result) == 0:
+            sql_insert_jobs_table = """INSERT INTO jobs (url,title,location,company,salary,ratings)
+                                            VALUES(?, ?, ?, ?, ?, ?);"""
+            jobs_query_tuple = (apply_urls[x], job_title_list[x], job_loc_list[x], company_name_list[x], salary_list[x], ratings_list[x])
+            job_id = execute_query(db, sql_insert_jobs_table, jobs_query_tuple)
+        else:
+            job_id = jobs_result[0][0]
+
+        sql_insert_users_jobs_table = """INSERT INTO users_jobs (user_id, job_id)
+                                    VALUES(?, ?);"""
+        users_jobs_query_tuple = (user_id, job_id)
+        execute_query(db, sql_insert_users_jobs_table, users_jobs_query_tuple)
      
-    #preparing datframe to be sent to user
+    #preparing dataframe to be sent to user in a tabular format
     length_of_list = len(apply_urls)
     final_list_for_cache = []
     for x in range(length_of_list):
         d={}
+        d["S.No."] = x+1
         d["Title"] = job_title_list[x]
         d["Location"] = job_loc_list[x]
         d["Company"] = company_name_list[x]
@@ -268,16 +336,15 @@ else:
         d_copy = d.copy()
         final_list_for_cache.append(d_copy)
     
-    mycache[unique_key] = final_list_for_cache
+    indeed_cache[unique_key] = final_list_for_cache
     df=pandas.DataFrame(l)
 
 #send an email to user using df
-# Email variables. Modify this!
-#EMAIL_FROM = 'anand.aditi5@gmail.com'
-#EMAIL_TO = email
-#EMAIL_SUBJECT = 'Indeed jobs for ',query,' at ',location
-#EMAIL_CONTENT = df.to_html()
+EMAIL_FROM = 'anand.aditi5@gmail.com'
+EMAIL_TO = email
+EMAIL_SUBJECT = 'Indeed jobs for '+query+' at '+location
+EMAIL_CONTENT = build_table(df, 'blue_light')
 
-#SCOPES = ['https://www.googleapis.com/auth/gmail.send']
+SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
-#send_email()
+send_email()
